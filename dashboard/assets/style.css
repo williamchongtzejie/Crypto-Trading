@@ -1,0 +1,32 @@
+body {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+.card {
+    background-color: #24273a;
+    border: 1px solid #363a4f;
+}
+
+.card-header {
+    background-color: #313244;
+    color: #cdd6f4;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.nav-tabs .nav-link {
+    color: #a6adc8;
+}
+
+.nav-tabs .nav-link.active {
+    background-color: #313244;
+    border-color: #363a4f;
+    color: #cdd6f4;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #1e2130 !important;
+    color: #cdd6f4 !important;
+}

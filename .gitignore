@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.pycache
+.DS_Store
+*.db
+*.log
+trading.db
+trading.log
+trade_log.csv
+.env

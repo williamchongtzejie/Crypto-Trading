@@ -1,0 +1,34 @@
+binance:
+  api_key: ""
+  api_secret: ""
+  testnet: false
+
+trading:
+  symbol: "BTCUSDT"
+  interval: "1d"
+  starting_capital: 100000.0
+  risk_per_trade: 0.01        # 1% of capital per trade
+  max_drawdown_limit: 0.10    # 10% portfolio drawdown → full stop
+  max_daily_loss: 0.02        # 2% daily loss → pause until next day
+  max_open_positions: 1
+
+pivot:
+  x: 4    # first bar lookback (Setup 5 from paper)
+  y: 1    # second bar lookback (Setup 5 from paper)
+
+macd:
+  fast: 13    # Setup 18 from paper
+  slow: 26
+  signal: 10
+
+database:
+  path: "trading.db"
+
+dashboard:
+  host: "127.0.0.1"
+  port: 8050
+  refresh_interval_ms: 60000
+
+logging:
+  level: "INFO"
+  file: "trading.log"
