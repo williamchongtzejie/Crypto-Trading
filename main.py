@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 import yaml
+# APScheduler removed — using a lightweight while-loop scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,32 +65,43 @@ def run_once():
 
 
 def main():
-    """Run the bot on a daily schedule (blocking loop)."""
+    """
+    Run the bot on a daily schedule (blocking loop).
+    Fires at UTC 00:05 every day. Checks every 30 seconds so it never
+    misses the target minute and responds quickly to Stop/Pause from dashboard.
+    """
+    from datetime import datetime, timezone
     from data.database import init_db, get_bot_status
 
     logger.info("Initialising database…")
     init_db()
-    logger.info("Bot started. Waiting for RUNNING status from dashboard.")
+    logger.info("Bot started. Fires daily at UTC 00:05. Press Ctrl+C to stop.")
 
-    from apscheduler.schedulers.blocking import BlockingScheduler
+    last_run_date = None
 
-    scheduler = BlockingScheduler(timezone="UTC")
-
-    @scheduler.scheduled_job("cron", hour=0, minute=5)
-    def daily_job():
-        status = get_bot_status()
-        if status != "RUNNING":
-            logger.info("Bot status is %s — skipping cycle", status)
-            return
-        logger.info("=== Daily cycle starting ===")
-        try:
-            run_once()
-        except Exception as e:
-            logger.exception("Error during daily cycle: %s", e)
-
-    logger.info("Scheduler running. Bot will execute daily at UTC 00:05.")
     try:
-        scheduler.start()
+        while True:
+            now = datetime.now(tz=timezone.utc)
+
+            # Fire at 00:05 UTC, once per day
+            if now.hour == 0 and now.minute == 5 and now.date() != last_run_date:
+                status = get_bot_status()
+                if status == "RUNNING":
+                    logger.info("=== Daily cycle starting ===")
+                    try:
+                        run_once()
+                        last_run_date = now.date()
+                    except Exception as e:
+                        logger.exception("Error during daily cycle: %s", e)
+                elif status == "PAUSED":
+                    logger.info("Bot is PAUSED — skipping today's cycle")
+                    last_run_date = now.date()
+                else:
+                    logger.info("Bot is STOPPED — skipping today's cycle")
+                    last_run_date = now.date()
+
+            time.sleep(30)
+
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot stopped.")
 

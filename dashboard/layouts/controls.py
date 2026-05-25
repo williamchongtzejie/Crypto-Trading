@@ -34,6 +34,18 @@ def layout():
                             dbc.Button("Stop", id="btn-stop", color="danger", className="mb-2", n_clicks=0),
                         ]), width=8),
                     ]),
+                    html.Hr(),
+                    html.Div([
+                        html.Small("Manual Trigger", className="text-muted d-block mb-2"),
+                        dbc.Button(
+                            "▶  Run Cycle Now",
+                            id="btn-run-now",
+                            color="primary",
+                            n_clicks=0,
+                            className="w-100",
+                        ),
+                        html.Div(id="run-now-feedback", className="mt-2 small"),
+                    ]),
                     html.Div(id="control-feedback", className="mt-2 text-muted small"),
                 ])
             ]), width=5),

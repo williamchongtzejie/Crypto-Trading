@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -80,6 +81,25 @@ def register(app):
             daily_bar,
             f"{daily_loss_pct:.2f}% of {daily_limit_pct:.0f}% limit",
         )
+
+
+    @app.callback(
+        Output("run-now-feedback", "children"),
+        Input("btn-run-now", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def run_now(n_clicks):
+        from main import run_once
+        status = get_bot_status()
+        if status != "RUNNING":
+            return dbc.Alert("Bot must be RUNNING to trigger a cycle. Click Start first.", color="warning", className="py-1 mb-0")
+        def _run():
+            try:
+                run_once()
+            except Exception as e:
+                pass
+        threading.Thread(target=_run, daemon=True).start()
+        return dbc.Alert("Cycle triggered — check the Signals and Positions tabs in ~5 seconds.", color="success", className="py-1 mb-0")
 
 
 def _get_config():
