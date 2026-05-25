@@ -61,6 +61,8 @@ app.layout = dbc.Container(
         dcc.Interval(id="refresh", interval=refresh_ms, n_intervals=0),
         # 5-second refresh for live price + candle
         dcc.Interval(id="live-refresh", interval=5000, n_intervals=0),
+        # Persists selected candle interval across live-refresh ticks
+        dcc.Store(id="selected-interval", data="1m"),
     ],
     style={"minHeight": "100vh"},
 )

@@ -23,10 +23,10 @@ import websockets
 
 logger = logging.getLogger(__name__)
 
-# Combined Binance spot stream URL (two streams in one connection)
+# Combined Binance spot stream URL — ticker + 1m + 5m + daily candles
 _STREAM_URL = (
     "wss://stream.binance.com:9443/stream"
-    "?streams=btcusdt@ticker/btcusdt@kline_1d"
+    "?streams=btcusdt@ticker/btcusdt@kline_1m/btcusdt@kline_5m/btcusdt@kline_1d"
 )
 
 # Shared in-memory store — read by dashboard callbacks
@@ -36,7 +36,23 @@ STORE: dict = {
     "high_24h":     None,
     "low_24h":      None,
     "volume_24h":   None,
-    "candle": {
+    "candle_5m": {          # current building 5-minute candle
+        "open":   None,
+        "high":   None,
+        "low":    None,
+        "close":  None,
+        "volume": None,
+        "closed": False,
+    },
+    "candle_1m": {          # current building 1-minute candle
+        "open":   None,
+        "high":   None,
+        "low":    None,
+        "close":  None,
+        "volume": None,
+        "closed": False,
+    },
+    "candle": {             # current building daily candle
         "open":   None,
         "high":   None,
         "low":    None,
@@ -66,16 +82,16 @@ def _handle_ticker(data: dict) -> None:
     STORE["updated_at"] = datetime.now(tz=timezone.utc).strftime("%H:%M:%S UTC")
 
 
-def _handle_kline(data: dict) -> None:
-    """Parse kline/candlestick event (stream: btcusdt@kline_1d)."""
+def _handle_kline(data: dict, key: str = "candle") -> None:
+    """Parse kline/candlestick event."""
     k = data["k"]
-    STORE["candle"] = {
+    STORE[key] = {
         "open":   float(k["o"]),
         "high":   float(k["h"]),
         "low":    float(k["l"]),
         "close":  float(k["c"]),
         "volume": float(k["v"]),
-        "closed": bool(k["x"]),   # True = candle closed (new bar started)
+        "closed": bool(k["x"]),
     }
 
 
@@ -104,8 +120,12 @@ async def _listen_forever() -> None:
 
                     if "ticker" in stream:
                         _handle_ticker(data)
-                    elif "kline" in stream:
-                        _handle_kline(data)
+                    elif "kline_1m" in stream:
+                        _handle_kline(data, key="candle_1m")
+                    elif "kline_5m" in stream:
+                        _handle_kline(data, key="candle_5m")
+                    elif "kline_1d" in stream:
+                        _handle_kline(data, key="candle")
 
         except Exception:
             STORE["connected"] = False

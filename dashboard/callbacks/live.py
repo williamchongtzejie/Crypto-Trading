@@ -15,13 +15,33 @@ from datetime import datetime, timezone
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import json
+import urllib.request
+
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output
+from dash import Input, Output, State
 
 import data.ws_feed as ws_feed
-from data.database import get_candles, get_recent_signals
-from strategy.indicators import pivot_reversal, macd as compute_macd
+from data.database import get_recent_signals
+from strategy.indicators import macd as compute_macd
+
+
+def _fetch_candles(limit: int = 60, interval: str = "1m") -> pd.DataFrame:
+    """Fetch recent OHLCV from Binance REST for the given interval."""
+    url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
+    with urllib.request.urlopen(url, timeout=8) as r:
+        data = json.loads(r.read())
+    rows = [{
+        "timestamp": pd.Timestamp(k[0], unit="ms", tz="UTC"),
+        "open":   float(k[1]),
+        "high":   float(k[2]),
+        "low":    float(k[3]),
+        "close":  float(k[4]),
+        "volume": float(k[5]),
+    } for k in data]
+    df = pd.DataFrame(rows).set_index("timestamp")
+    return df
 
 
 def _load_config():
@@ -32,6 +52,27 @@ def _load_config():
 
 def register(app):
     cfg = _load_config()
+
+    # ------------------------------------------------------------------ #
+    #  Persist selected interval in dcc.Store                             #
+    # ------------------------------------------------------------------ #
+    @app.callback(
+        Output("selected-interval",  "data"),
+        Output("interval-1m",        "color"),
+        Output("interval-1m",        "outline"),
+        Output("interval-5m",        "color"),
+        Output("interval-5m",        "outline"),
+        Input("interval-1m",         "n_clicks"),
+        Input("interval-5m",         "n_clicks"),
+        State("selected-interval",   "data"),
+        prevent_initial_call=True,
+    )
+    def set_interval(n1m, n5m, current):
+        from dash import ctx
+        chosen = "5m" if ctx.triggered_id == "interval-5m" else "1m"
+        if chosen == "5m":
+            return "5m", "secondary", True,  "primary", False
+        return "1m", "primary", False, "secondary", True
 
     # ------------------------------------------------------------------ #
     #  Live price header — reads from WebSocket STORE                     #
@@ -72,61 +113,75 @@ def register(app):
         )
 
     # ------------------------------------------------------------------ #
-    #  Candlestick chart — historical bars from DB + live candle from WS  #
+    #  Candlestick — REST fetch + live WS candle appended               #
     # ------------------------------------------------------------------ #
     @app.callback(
-        Output("chart-candle", "figure"),
-        Input("live-refresh",  "n_intervals"),
-        Input("range-30",      "n_clicks"),
-        Input("range-60",      "n_clicks"),
-        Input("range-90",      "n_clicks"),
-        Input("range-180",     "n_clicks"),
+        Output("chart-candle",       "figure"),
+        Output("chart-title",        "children"),
+        Input("live-refresh",        "n_intervals"),
+        Input("interval-1m",         "n_clicks"),
+        Input("interval-5m",         "n_clicks"),
+        Input("range-1h",            "n_clicks"),
+        Input("range-4h",            "n_clicks"),
+        Input("range-8h",            "n_clicks"),
+        Input("range-1d",            "n_clicks"),
+        State("selected-interval",   "data"),
     )
-    def update_candles(_, r30, r60, r90, r180):
+    def update_candles(_, i1m, i5m, r1h, r4h, r8h, r1d, stored_interval):
         from dash import ctx
-        range_map = {"range-30": 30, "range-60": 60, "range-90": 90, "range-180": 180}
-        days = range_map.get(ctx.triggered_id, 90)
 
-        # Historical closed candles from SQLite
-        rows = get_candles("BTCUSDT", "1d", limit=max(days + 10, 200))
-        if not rows:
-            return go.Figure()
+        # Use the interval button that was just clicked, or fall back to stored state
+        if ctx.triggered_id == "interval-1m":
+            interval = "1m"
+        elif ctx.triggered_id == "interval-5m":
+            interval = "5m"
+        else:
+            interval = stored_interval or "1m"
 
-        df = pd.DataFrame(rows)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df = df.set_index("timestamp").sort_index()
+        # Bars per range for each interval
+        range_map = {
+            "1m": {"range-1h": 60,  "range-4h": 240, "range-8h": 480,  "range-1d": 1440},
+            "5m": {"range-1h": 12,  "range-4h": 48,  "range-8h": 96,   "range-1d": 288},
+        }
+        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-1h"])
 
-        # Append current live candle from WebSocket STORE
-        candle = ws_feed.STORE.get("candle", {})
-        if candle.get("close") is not None and not candle.get("closed"):
-            today_ts = pd.Timestamp.utcnow().normalize().tz_localize("UTC")
-            if today_ts not in df.index:
-                live_row = pd.DataFrame([{
-                    "open":   candle["open"],
-                    "high":   candle["high"],
-                    "low":    candle["low"],
-                    "close":  candle["close"],
-                    "volume": candle["volume"],
-                }], index=[today_ts])
+        chart_title = f"BTC/USDT — {interval} Candlestick"
+
+        try:
+            df = _fetch_candles(limit=min(limit + 1, 1000), interval=interval)
+        except Exception:
+            return go.Figure(), chart_title
+
+        if df.empty:
+            return go.Figure(), chart_title
+
+        # Replace or append the current live candle from WebSocket
+        ws_key = "candle_5m" if interval == "5m" else "candle_1m"
+        live_candle = ws_feed.STORE.get(ws_key, {})
+        freq = "5min" if interval == "5m" else "min"
+        if live_candle.get("close") is not None:
+            now_floored = pd.Timestamp.utcnow().floor(freq).tz_localize("UTC")
+            live_row = pd.DataFrame([{
+                "open":   live_candle["open"],
+                "high":   live_candle["high"],
+                "low":    live_candle["low"],
+                "close":  live_candle["close"],
+                "volume": live_candle["volume"],
+            }], index=[now_floored])
+            if now_floored in df.index:
+                df.loc[now_floored] = live_row.iloc[0]
+            else:
                 df = pd.concat([df, live_row])
 
-        df = df.tail(days)
+        df = df.tail(limit)
 
-        # Compute pivots on full history
-        full_df = pd.DataFrame(rows)
-        full_df["timestamp"] = pd.to_datetime(full_df["timestamp"])
-        full_df = full_df.set_index("timestamp").sort_index()
-
-        px_cfg = cfg["pivot"]["x"]
-        py_cfg = cfg["pivot"]["y"]
-        pivots  = pivot_reversal(full_df, x=px_cfg, y=py_cfg).reindex(df.index)
-
-        bull_idx = df.index[pivots == "BULL"]
-        bear_idx = df.index[pivots == "BEAR"]
+        # Open position levels for reference lines
+        from data.database import get_open_position
+        open_pos = get_open_position()
 
         fig = go.Figure()
 
-        # Candlestick bars
+        # Candlestick
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df["open"], high=df["high"],
@@ -138,43 +193,43 @@ def register(app):
             decreasing_fillcolor="#f38ba8",
         ))
 
-        # Bull pivot markers (▲ below bar)
-        if len(bull_idx):
-            fig.add_trace(go.Scatter(
-                x=bull_idx,
-                y=df.loc[bull_idx, "low"] * 0.995,
-                mode="markers",
-                marker=dict(symbol="triangle-up", size=12, color="#a6e3a1"),
-                name="Bull Pivot",
-                hovertemplate="Bull Pivot<br>%{x}<extra></extra>",
-            ))
+        # Volume as bar trace on secondary y-axis
+        vol_colors = ["#a6e3a161" if c >= o else "#f38ba861"
+                      for o, c in zip(df["open"], df["close"])]
+        fig.add_trace(go.Bar(
+            x=df.index, y=df["volume"],
+            name="Volume", marker_color=vol_colors,
+            yaxis="y2", showlegend=False,
+        ))
 
-        # Bear pivot markers (▼ above bar)
-        if len(bear_idx):
-            fig.add_trace(go.Scatter(
-                x=bear_idx,
-                y=df.loc[bear_idx, "high"] * 1.005,
-                mode="markers",
-                marker=dict(symbol="triangle-down", size=12, color="#f38ba8"),
-                name="Bear Pivot",
-                hovertemplate="Bear Pivot<br>%{x}<extra></extra>",
-            ))
+        # Entry and stop lines if there's an open position
+        if open_pos:
+            entry = open_pos.get("fill_price")
+            stop  = open_pos.get("stop_price")
+            side  = open_pos.get("side", "")
+            if entry:
+                fig.add_hline(y=entry, line_color="#89b4fa", line_dash="dash", line_width=1,
+                              annotation_text=f"Entry ${entry:,.0f}", annotation_position="right",
+                              annotation_font_color="#89b4fa")
+            if stop:
+                fig.add_hline(y=stop, line_color="#f38ba8", line_dash="dot", line_width=1,
+                              annotation_text=f"Stop ${stop:,.0f}", annotation_position="right",
+                              annotation_font_color="#f38ba8")
 
-        # Highlight today's live candle
+        # Highlight the most recent (live) bar
         if len(df):
             last_ts = df.index[-1]
             fig.add_vrect(
                 x0=last_ts, x1=last_ts,
-                fillcolor="#89b4fa", opacity=0.15,
+                fillcolor="#89b4fa", opacity=0.12,
                 layer="below", line_width=1, line_color="#89b4fa",
                 annotation_text="Live", annotation_position="top left",
-                annotation_font_color="#89b4fa",
+                annotation_font_color="#89b4fa", annotation_font_size=10,
             )
 
-        # WS connection indicator in title
         conn_dot = "🟢" if ws_feed.is_connected() else "🔴"
         fig.update_layout(
-            title=dict(text=f"{conn_dot} BTC/USDT — Live Daily Candle", font=dict(size=13, color="#a6adc8")),
+            title=dict(text=f"{conn_dot} BTC/USDT — {interval}", font=dict(size=12, color="#a6adc8")),
             template="plotly_dark",
             paper_bgcolor="#1e2130",
             plot_bgcolor="#1e2130",
@@ -182,37 +237,53 @@ def register(app):
             margin=dict(l=10, r=10, t=36, b=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             hovermode="x unified",
+            yaxis=dict(showgrid=True, gridcolor="#2a2d3e", tickprefix="$", domain=[0.25, 1]),
+            yaxis2=dict(showgrid=False, domain=[0, 0.22], showticklabels=False),
+            xaxis=dict(showgrid=True, gridcolor="#2a2d3e", showspikes=True),
         )
-        fig.update_xaxes(showgrid=True, gridcolor="#2a2d3e", showspikes=True)
-        fig.update_yaxes(showgrid=True, gridcolor="#2a2d3e", tickprefix="$")
-        return fig
+        return fig, chart_title
 
     # ------------------------------------------------------------------ #
-    #  MACD sub-panel                                                      #
+    #  MACD sub-panel (computed on selected interval bars)                #
     # ------------------------------------------------------------------ #
     @app.callback(
-        Output("chart-macd-panel", "figure"),
-        Input("live-refresh",      "n_intervals"),
-        Input("range-30",          "n_clicks"),
-        Input("range-60",          "n_clicks"),
-        Input("range-90",          "n_clicks"),
-        Input("range-180",         "n_clicks"),
+        Output("chart-macd-panel",   "figure"),
+        Input("live-refresh",        "n_intervals"),
+        Input("interval-1m",         "n_clicks"),
+        Input("interval-5m",         "n_clicks"),
+        Input("range-1h",            "n_clicks"),
+        Input("range-4h",            "n_clicks"),
+        Input("range-8h",            "n_clicks"),
+        Input("range-1d",            "n_clicks"),
+        State("selected-interval",   "data"),
     )
-    def update_macd_panel(_, r30, r60, r90, r180):
+    def update_macd_panel(_, i1m, i5m, r1h, r4h, r8h, r1d, stored_interval):
         from dash import ctx
-        range_map = {"range-30": 30, "range-60": 60, "range-90": 90, "range-180": 180}
-        days = range_map.get(ctx.triggered_id, 90)
 
-        rows = get_candles("BTCUSDT", "1d", limit=200)
-        if not rows:
+        if ctx.triggered_id == "interval-1m":
+            interval = "1m"
+        elif ctx.triggered_id == "interval-5m":
+            interval = "5m"
+        else:
+            interval = stored_interval or "1m"
+
+        range_map = {
+            "1m": {"range-1h": 60,  "range-4h": 240, "range-8h": 480,  "range-1d": 1440},
+            "5m": {"range-1h": 12,  "range-4h": 48,  "range-8h": 96,   "range-1d": 288},
+        }
+        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-1h"])
+
+        try:
+            # Fetch extra bars so MACD has enough history to warm up
+            df = _fetch_candles(limit=min(limit + 60, 1000), interval=interval)
+        except Exception:
             return go.Figure()
 
-        df = pd.DataFrame(rows)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df = df.set_index("timestamp").sort_index()
+        if df.empty:
+            return go.Figure()
 
         mf, ms, mg = cfg["macd"]["fast"], cfg["macd"]["slow"], cfg["macd"]["signal"]
-        macd_df = compute_macd(df, fast=mf, slow=ms, signal=mg).tail(days)
+        macd_df = compute_macd(df, fast=mf, slow=ms, signal=mg).tail(limit)
 
         colors = ["#a6e3a1" if v >= 0 else "#f38ba8" for v in macd_df["histogram"]]
 

@@ -36,12 +36,19 @@ def layout():
         dbc.Row([
             dbc.Col(dbc.Card([
                 dbc.CardHeader([
-                    "BTC/USDT — Daily Candlestick",
+                    # Interval selector (left)
                     dbc.ButtonGroup([
-                        dbc.Button("30D",  id="range-30",  size="sm", color="secondary", outline=True, n_clicks=0, className="ms-2"),
-                        dbc.Button("60D",  id="range-60",  size="sm", color="secondary", outline=True, n_clicks=0),
-                        dbc.Button("90D",  id="range-90",  size="sm", color="primary",   outline=False, n_clicks=0),
-                        dbc.Button("180D", id="range-180", size="sm", color="secondary", outline=True, n_clicks=0),
+                        dbc.Button("1m", id="interval-1m", size="sm", color="primary",   outline=False, n_clicks=0),
+                        dbc.Button("5m", id="interval-5m", size="sm", color="secondary", outline=True,  n_clicks=0),
+                    ], className="me-3"),
+                    html.Span(id="chart-title", children="BTC/USDT — 1m Candlestick",
+                              style={"fontWeight": "600", "fontSize": "0.9rem"}),
+                    # Range selector (right)
+                    dbc.ButtonGroup([
+                        dbc.Button("1H", id="range-1h", size="sm", color="primary",   outline=False, n_clicks=0, className="ms-2"),
+                        dbc.Button("4H", id="range-4h", size="sm", color="secondary", outline=True,  n_clicks=0),
+                        dbc.Button("8H", id="range-8h", size="sm", color="secondary", outline=True,  n_clicks=0),
+                        dbc.Button("1D", id="range-1d", size="sm", color="secondary", outline=True,  n_clicks=0),
                     ], className="float-end"),
                 ]),
                 dbc.CardBody(
