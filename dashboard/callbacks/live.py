@@ -27,6 +27,15 @@ from data.database import get_recent_signals
 from strategy.indicators import macd as compute_macd
 
 
+_DARK = dict(template="plotly_dark", paper_bgcolor="#1e2130", plot_bgcolor="#1e2130")
+
+
+def _empty_fig():
+    fig = go.Figure()
+    fig.update_layout(**_DARK, margin=dict(l=10, r=10, t=10, b=10))
+    return fig
+
+
 def _fetch_candles(limit: int = 60, interval: str = "1m") -> pd.DataFrame:
     """Fetch recent OHLCV from Binance REST for the given interval."""
     url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
@@ -150,17 +159,17 @@ def register(app):
         try:
             df = _fetch_candles(limit=min(limit + 1, 1000), interval=interval)
         except Exception:
-            return go.Figure(), chart_title
+            return _empty_fig(), chart_title
 
         if df.empty:
-            return go.Figure(), chart_title
+            return _empty_fig(), chart_title
 
         # Replace or append the current live candle from WebSocket
         ws_key = "candle_5m" if interval == "5m" else "candle_1m"
         live_candle = ws_feed.STORE.get(ws_key, {})
         freq = "5min" if interval == "5m" else "min"
         if live_candle.get("close") is not None:
-            now_floored = pd.Timestamp.utcnow().floor(freq).tz_localize("UTC")
+            now_floored = pd.Timestamp.now(tz="UTC").floor(freq)
             live_row = pd.DataFrame([{
                 "open":   live_candle["open"],
                 "high":   live_candle["high"],
@@ -277,10 +286,10 @@ def register(app):
             # Fetch extra bars so MACD has enough history to warm up
             df = _fetch_candles(limit=min(limit + 60, 1000), interval=interval)
         except Exception:
-            return go.Figure()
+            return _empty_fig()
 
         if df.empty:
-            return go.Figure()
+            return _empty_fig()
 
         mf, ms, mg = cfg["macd"]["fast"], cfg["macd"]["slow"], cfg["macd"]["signal"]
         macd_df = compute_macd(df, fast=mf, slow=ms, signal=mg).tail(limit)
