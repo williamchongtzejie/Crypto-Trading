@@ -45,8 +45,8 @@ def layout():
                               style={"fontWeight": "600", "fontSize": "0.9rem"}),
                     # Range selector (right)
                     dbc.ButtonGroup([
-                        dbc.Button("1H", id="range-1h", size="sm", color="primary",   outline=False, n_clicks=0, className="ms-2"),
-                        dbc.Button("4H", id="range-4h", size="sm", color="secondary", outline=True,  n_clicks=0),
+                        dbc.Button("1H", id="range-1h", size="sm", color="secondary", outline=True,  n_clicks=0, className="ms-2"),
+                        dbc.Button("4H", id="range-4h", size="sm", color="primary",   outline=False, n_clicks=0),
                         dbc.Button("8H", id="range-8h", size="sm", color="secondary", outline=True,  n_clicks=0),
                         dbc.Button("1D", id="range-1d", size="sm", color="secondary", outline=True,  n_clicks=0),
                     ], className="float-end"),

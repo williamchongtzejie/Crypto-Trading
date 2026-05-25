@@ -147,12 +147,12 @@ def register(app):
         else:
             interval = stored_interval or "1m"
 
-        # Bars per range for each interval
+        # Bars per range for each interval (default: 4H)
         range_map = {
             "1m": {"range-1h": 60,  "range-4h": 240, "range-8h": 480,  "range-1d": 1440},
             "5m": {"range-1h": 12,  "range-4h": 48,  "range-8h": 96,   "range-1d": 288},
         }
-        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-1h"])
+        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-4h"])
 
         chart_title = f"BTC/USDT — {interval} Candlestick"
 
@@ -203,7 +203,7 @@ def register(app):
         ))
 
         # Volume as bar trace on secondary y-axis
-        vol_colors = ["#a6e3a161" if c >= o else "#f38ba861"
+        vol_colors = ["rgba(166,227,161,0.38)" if c >= o else "rgba(243,139,168,0.38)"
                       for o, c in zip(df["open"], df["close"])]
         fig.add_trace(go.Bar(
             x=df.index, y=df["volume"],
@@ -280,7 +280,7 @@ def register(app):
             "1m": {"range-1h": 60,  "range-4h": 240, "range-8h": 480,  "range-1d": 1440},
             "5m": {"range-1h": 12,  "range-4h": 48,  "range-8h": 96,   "range-1d": 288},
         }
-        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-1h"])
+        limit = range_map[interval].get(ctx.triggered_id, range_map[interval]["range-4h"])
 
         try:
             # Fetch extra bars so MACD has enough history to warm up
