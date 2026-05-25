@@ -34,7 +34,7 @@ strategy/
 │   ├── fetcher.py                # Binance REST API — fetches daily OHLCV
 │   ├── processor.py              # Data cleaning and validation
 │   ├── database.py               # SQLite schema and CRUD (shared by bot + dashboard)
-│   └── ws_feed.py                # Binance WebSocket feed (live price + candle)
+│   └── ws_feed.py                # Binance WebSocket feed (live price + 1m/5m/daily candle)
 ├── strategy/
 │   ├── indicators.py             # Pivot Reversal, MACD, RSI calculations
 │   └── signals.py                # Combined signal generator
@@ -52,7 +52,7 @@ strategy/
 ├── dashboard/
 │   ├── app.py                    # Dash entry point → http://localhost:8050
 │   ├── layouts/
-│   │   ├── live_chart.py         # Live Chart tab
+│   │   ├── live_chart.py         # Live Chart tab (1m/5m toggle, range selector)
 │   │   ├── backtest.py           # Backtest tab
 │   │   ├── overview.py           # Overview tab
 │   │   ├── signals.py            # Signals tab
@@ -77,7 +77,7 @@ strategy/
 - Fetches daily BTC/USDT OHLCV from Binance REST API (no API key needed for market data)
 - Validates completeness: no missing candles, no zero volume, no invalid OHLC
 - Stores to SQLite via idempotent upsert — safe to re-run without duplicates
-- **WebSocket feed** (`data/ws_feed.py`) streams live price and the current building candle continuously in a background thread — no polling
+- **WebSocket feed** (`data/ws_feed.py`) streams live price, 1m candles, 5m candles, and the current building daily candle continuously in a background thread — no polling
 - Runs daily bot cycle at UTC 00:05 (5 minutes after candle close)
 
 ### 2. Strategy & Signal Generation
@@ -115,15 +115,20 @@ strategy/
 Six tabs at **http://localhost:8050**, with a 5-second live refresh and 60-second analytics refresh.
 
 ### Live Chart
-Real-time market data via Binance WebSocket — no REST polling.
-- **Live price strip** — BTC/USDT price, 24h change (green/red), 24h high/low, volume, last update time. Updates on every trade from Binance.
-- **Candlestick chart** — last 30/60/90/180 daily bars with green/red candles. ▲ Bull pivot and ▼ Bear pivot markers overlaid directly on price bars. Today's live building candle highlighted in blue.
-- **MACD sub-panel** — histogram (green/red bars), MACD line vs Signal line for the selected range.
-- **Signal card** — current LONG / SHORT / HOLD with raw indicator values.
-- **Connection indicator** — 🟢 green dot when WebSocket is live, 🔴 red on reconnect.
+Real-time market data via Binance WebSocket — no REST polling for price.
+
+- **Live price strip** — BTC/USDT price, 24h change (green/red), 24h high/low, volume, last update time
+- **Interval toggle** — switch between **1m** and **5m** candlestick views; selection persists across auto-refresh ticks
+- **Range selector** — **1H / 4H / 8H / 1D** buttons; loads the correct number of bars for the active interval (e.g. 1D = 1440 bars on 1m, 288 bars on 5m). Defaults to **4H** on load
+- **Candlestick chart** — green/red OHLC candles with semi-transparent volume bars on a secondary axis. Open entry and stop-loss levels are overlaid as dashed reference lines when a position is open
+- **Live candle** — the current building candle is injected from the WebSocket STORE in real time, replacing the latest REST bar so the chart stays fresh
+- **MACD sub-panel** — histogram (green/red bars), MACD line vs Signal line, computed on whichever interval is active
+- **Signal card** — current LONG / SHORT / HOLD with raw pivot and MACD indicator values
+- **Connection indicator** — 🟢 green dot when WebSocket is live, 🔴 red on reconnect
 
 ### Backtest
 Full historical backtest on Binance data from **2017-08-17 to present** (~8 years).
+
 - **Parameter controls** — date range picker, Pivot X/Y, MACD fast/slow/signal, starting capital, risk %
 - **▶ Run Backtest** button — fetches and caches data, runs simulation, displays results instantly on re-runs
 - **18 performance metrics** across two rows:
@@ -179,14 +184,14 @@ binance:
   api_secret: ""
 ```
 
-### 3. Open two terminal tabs (Cmd + T for a new tab on Mac)
+### 3. Open two terminal tabs (Cmd + T on Mac)
 
 **Terminal 1 — Trading Bot**
 ```bash
 cd "path/to/Strategy"
 python3 main.py
 ```
-The bot initialises the database, then waits. It fires a full trading cycle every day at **UTC 00:05** (midnight UTC, 08:05 SGT).
+The bot initialises the database, then waits. It fires a full trading cycle every day at **UTC 00:05** (08:05 SGT). Use the **▶ Run Cycle Now** button on the Controls tab to trigger a cycle immediately.
 
 **Terminal 2 — Dashboard**
 ```bash
@@ -203,7 +208,7 @@ http://localhost:8050
 1. Open **http://localhost:8050** in your browser
 2. Click the **Controls** tab
 3. Click **Start** — the status badge turns green
-4. To run a cycle immediately without waiting for UTC 00:05, click **▶ Run Cycle Now**
+4. To run a cycle immediately, click **▶ Run Cycle Now**
 
 ### 5. Run a backtest
 
